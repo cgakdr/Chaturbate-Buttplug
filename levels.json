@@ -1,0 +1,13 @@
+{
+    "default": [
+        {"type": "e", "value": 666, "time": 10, "level": "wave"},
+        {"type": "e", "value": 777, "time": 10, "level": "pulse"},
+        {"type": "e", "value": 888, "time": 10, "level": "earthquake"},
+        {"type": "e", "value": 999, "time": 10, "level": "fireworks"},
+        {"type": "g", "value": 1000, "time": 65, "level": "U"},
+        {"type": "g", "value": 250, "time": 45, "level": "H"},
+        {"type": "g", "value": 100, "time": 20, "level": "H"},
+        {"type": "g", "value": 20, "time": 15, "level": "M"},
+        {"type": "g", "value": 1, "time": 2, "level": "L"}
+    ]
+}
