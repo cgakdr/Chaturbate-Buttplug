@@ -1,52 +1,48 @@
 #!/usr/bin/env python3
 
-from pipe import Pipe
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as expected
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.by import By
-from selenium.webdriver import Firefox, FirefoxProfile
-from lxml import html
-import websockets
+import asyncio
 import functools
+import json
 import os
 import random
-import json
 import re
+import string
 import sys
 import threading
 import time
-from queue import Empty, SimpleQueue
 import traceback
-from math import sin
+import urllib.request
 from datetime import datetime
 from numbers import Number
-import asyncio
+from queue import Empty, SimpleQueue
 
 import requests
-import sys
+import websockets
+
+from pipe import Pipe
+
 # local versions of libraries
 sys.path.insert(0, 'buttplug')
 sys.path.insert(0, 'python_readchar\\readchar')
+from buttplug.client import (ButtplugClient, ButtplugClientConnectorError,
+                             ButtplugClientDevice,
+                             ButtplugClientWebsocketConnector)
 from buttplug.core import ButtplugLogLevel
-from buttplug.client import (ButtplugClientWebsocketConnector, ButtplugClient,
-                             ButtplugClientDevice, ButtplugClientConnectorError)
 from readchar import key as KEY
 from readchar import readkey
 
 def main():
-    username = sys.argv[1] if len(sys.argv) >= 2 else ''
+    broadcaster = sys.argv[1] if len(sys.argv) >= 2 else ''
     pipe = Pipe()
     pipe_comm = pipe.pipe_a
     pipe_watcher = pipe.pipe_b
 
     comm_thread = threading.Thread(
-        target=communicator_runner, args=(pipe_comm, username))
-    # target=comm_dummy, args=(pipe_comm, username))
+        target=communicator_runner, args=(pipe_comm, broadcaster))
+    # target=comm_dummy, args=(pipe_comm, broadcaster))
     watcher_thread = threading.Thread(
-        target=chat_watcher, args=(pipe_watcher, username))
-    # target=comm_test, args=(pipe_watcher, username))
+        target=chat_watcher_runner, args=(pipe_watcher, broadcaster))
+    # target=comm_test, args=(pipe_watcher, broadcaster))
     comm_thread.start()
     watcher_thread.start()
     print('main: started threads')
@@ -61,9 +57,9 @@ def main():
             elif inp == 'z':
                 pipe_watcher.put(('delay', -0.5))
             elif inp == 'c':
-                new_username = input('Enter new username: ')
-                pipe_comm.put(('username', new_username))
-                pipe_watcher.put(('username', new_username))
+                new_broadcaster = input('Enter new broadcaster: ')
+                pipe_comm.put(('broadcaster', new_broadcaster))
+                pipe_watcher.put(('broadcaster', new_broadcaster))
             elif inp == 'r':
                 pipe_comm.put(('reload'))
             # TODO command to reload json
@@ -81,12 +77,12 @@ def get_config(key):
     return config[key]
 
 
-def communicator_runner(pipe, username):
-    asyncio.run(communicator(pipe, username))
+def communicator_runner(pipe, broadcaster):
+    asyncio.run(communicator(pipe, broadcaster))
     print('communicator_runner finished')
 
 
-async def communicator(tips_queue, username):
+async def communicator(tips_queue, broadcaster):
     async def do_comm(timeout, val):
         if isinstance(val, Number):
             print('do_comm with ' + str(timeout) + 's@' +
@@ -148,10 +144,10 @@ async def communicator(tips_queue, username):
     try:
         users = json.load(open('levels.json', 'r'))
         user = None
-        if not username in users:
-            print('comm: username not found in levels.json')
+        if not broadcaster in users:
+            print('comm: broadcaster not found in levels.json')
             user = users['default']
-        user = user or users[username]
+        user = user or users[broadcaster]
         dev = None
         client = await init_buttplug()
 
@@ -168,15 +164,15 @@ async def communicator(tips_queue, username):
                         if tip[0] == 'delay':
                             delay += tip[1]
                             print('comm: new delay: ' + str(delay))
-                        elif tip[0] == 'username':
-                            username = tip[1]
+                        elif tip[0] == 'broadcaster':
+                            broadcaster = tip[1]
                             tips_queue.clear()
-                            if not username in users:
-                                print('comm: username not found in levels.json')
+                            if not broadcaster in users:
+                                print('comm: broadcaster not found in levels.json')
                                 user = users['default']
                             else:
-                                user = users[username]
-                            print('comm: new username: ' + username)
+                                user = users[broadcaster]
+                            print('comm: new broadcaster: ' + broadcaster)
                         continue
                 except Empty:
                     continue
@@ -222,7 +218,7 @@ async def communicator(tips_queue, username):
         return
 
 
-def comm_test(tips_queue, username):
+def comm_test(tips_queue, broadcaster):
     try:
         while True:
             print('test: 666 wave 10s')
@@ -247,79 +243,76 @@ def comm_test(tips_queue, username):
         print('comm_test done')
 
 
-def chat_watcher(tips_queue, username):
-    webdriver_json = json.load(open('webdriver.json', 'r'))
-    fx_opts = Options()
-    fx_profile_dir = webdriver_json['geckodriver']['profileDirectory']
-    if fx_profile_dir == '':
-        print('watcher error: no profile directory in webdriver.json')
-    fx_profile = FirefoxProfile(
-        profile_directory=fx_profile_dir)
-    fx_driver = Firefox(firefox_profile=fx_profile,
-                        options=fx_opts)
-    # fx_driver.set_window_size(1900, 980)
+def chat_watcher_runner(tips_queue, broadcaster):
+    asyncio.run(chat_watcher(tips_queue, broadcaster))
+    print('chat_watcher_runner finished')
 
+
+async def chat_watcher(tips_queue, broadcaster):
     try:
-        while True:
-            page_uri = 'https://chaturbate.com/' + username + '/'
-            fx_driver.get(page_uri)
-            WebDriverWait(fx_driver, 10).until(expected.visibility_of_element_located(
-                (By.CSS_SELECTOR, '#main.chat_room')))  # wait for chat to start
-            print('chat found')
-            els = []
-            els_old_len = 0
-
+        api_info = None
+        with urllib.request.urlopen(f'https://chaturbate.com/api/chatvideocontext/{broadcaster}/') as url:
+            api_info = json.loads(url.read().decode())
+        # CB uses SockJS defaults of randomness
+        ws_uri = f"{api_info['wschat_host'].replace('https://', 'wss://')}/{random.randint(100, 999)}/{''.join(random.choices(string.ascii_letters + string.digits, k=8))}/websocket"
+        async with websockets.connect(ws_uri) as websocket:
+            # opening handshake
+            resp = await websocket.recv()
+            # print(f'<< {resp}') # 'o'
+            json_encoder = json.JSONEncoder()
+            obj2 = json_encoder.encode({'method': 'connect', 'data': {'user': api_info['chat_username'], 'password': api_info['chat_password'], 'room': api_info['broadcaster_username'], 'room_password': api_info['room_pass']}})
+            obj3 = json_encoder.encode([obj2])
+            # print(f'>> {obj3}')
+            await websocket.send(obj3)
+            resp = await websocket.recv()
+            assert 'onAuthResponse' in resp
+            # print(f'<< {resp}') # 'a["{\"args\":[\"1\"],\"callback\":null,\"method\":\"onAuthResponse\"}"]'
+            obj2 = json_encoder.encode({'method': 'joinRoom', 'data': {'room': broadcaster, 'exploringHashTag': ''}})
+            obj3 = json_encoder.encode([obj2])
+            # print(f'>> {obj3}')
+            await websocket.send(obj3)
+            print('watcher connected to chat room')
+            ws_connect_time = time.time()
             while True:
-                els = fx_driver.find_elements_by_css_selector(
-                    '#main.chat_room #chat-box div[style*="background: rgb(255, 255, 51)"]')
-                new_els_cnt = len(els) - els_old_len
-                new_els = []
-                if new_els_cnt > 0:
-                    print(
-                        f'watcher: new_els_cnt={new_els_cnt}, len(els)={len(els)}, els_old_len={els_old_len}')
-                    new_els = els[-new_els_cnt:]
-                for el in new_els:
-                    text = el.get_attribute('textContent')
-                    print(f'watcher found textContent "{text}"')
-                    #text = el.find_element_by_css_selector(
-                    #    'span.emoticonImage').text
-                    try:
-                        tip = Tip(int(text.split(' ')[2]), time.time())
-                        tips_queue.put(tip)
-                        print('watcher sent ' + str(tip.val) +
-                              'tip queue len ' + str(tips_queue.len_write()))
-                    except ValueError as error:
-                        tip = Tip(0, time.time())
-                    except IndexError as error:
-                        print(
-                            f'watcher tip message index error on string "{text}"')
-                els_old_len = len(els)
+                resp = await websocket.recv()
+                if re.search('amount', resp) and time.time() - ws_connect_time > 1: # ignore initial burst of old tips
+                    msg = json.loads(json.loads(json.loads(resp[1:])[0])['args'][0])
+                    # a["{\"args\":[\"{\\\"in_fanclub\\\": false, \\\"to_username\\\": \\\"{broadcaster}\\\", \\\"has_tokens\\\": true, \\\"message\\\": \\\"\\\", \\\"tipped_recently\\\": true, \\\"is_anonymous_tip\\\": false, \\\"dont_send_to\\\": \\\"\\\", \\\"from_username\\\": \\\"{username}\\\", \\\"send_to\\\": \\\"\\\", \\\"tipped_alot_recently\\\": true, \\\"amount\\\": 1, \\\"tipped_tons_recently\\\": true, \\\"is_mod\\\": false, \\\"type\\\": \\\"tip_alert\\\", \\\"history\\\": true}\",\"true\"],\"callback\":null,\"method\":\"onNotify\"}"]
+                    if msg['type'] == 'tip_alert':
+                        amt = msg['amount']
+                        # print(f'<<j {msg}')
+                        try:
+                            tip = Tip(int(amt), time.time())
+                            tips_queue.put(tip)
+                            print('watcher sent ' + str(tip.val) +
+                                  ' from ' + msg['from_username'] +
+                                  ' tip queue len ' + str(tips_queue.len_write()))
+                        except ValueError:
+                            print(f'ValueError on amt:{amt}\ttype:{type(amt)}\tmsg:{msg}')
+
                 time.sleep(0.1)
                 try:
                     ex = tips_queue.get_nowait()
                     if type(ex) == Exception:
                         raise ex
                     else:
-                        if ex[0] == 'username':
-                            username = ex[1]
-                            print('watcher new username: ' + username)
+                        if ex[0] == 'broadcaster':
+                            broadcaster = ex[1]
+                            print('watcher new broadcaster: ' + broadcaster)
                             break
                         elif ex[0] == 'reload':
                             break
                 except Empty:
                     pass
-
     except Exception as ex:
         print('watcher thread error')
         print(traceback.format_exc())
     finally:
         tips_queue.put(Exception('watcher thread error'))
-        fx_driver.close()
-        fx_driver.quit()
         return
 
 
-def comm_dummy(pipe, username):
+def comm_dummy(pipe, broadcaster):
     try:
         while True:
             try:

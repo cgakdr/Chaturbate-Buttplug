@@ -1,6 +1,6 @@
 # Chaturbate interface for Buttplug
 
-Launches Firefox and scrapes Chaturbate chat for tip messages, forwarding them to your own vibrator.
+Scrapes a Chaturbate websockets chat room for tip messages, forwarding them to your own vibrator.
 
 I can only verify with Lovense toys, but it probably works for any vibrator Buttplug supports.
 
@@ -14,20 +14,12 @@ To do:
   - [ ] Comment the code
   - [ ] Clean up the code (break into files/classes/functions)
   - [ ] Get real logging
-  - [ ] Add a config for other WebDriver-supported browsers
 
 ## Setup and dependencies
 
 Packages:
   - `python-readchar` (and see [this issue](https://github.com/magmax/python-readchar/issues/42) for a performance fix)
-  - `selenium`
   - `buttplug`
-
-Also get:
-  - [geckodriver](https://github.com/mozilla/geckodriver/releases) and put it on your path
-
-First run:
-  - Put the path to a Firefox profile in `webdriver.json`
 
 ## Specifying levels in levels.json
 
