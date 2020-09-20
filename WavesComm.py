@@ -32,6 +32,7 @@ from readchar import key as KEY
 from readchar import readkey
 
 def main():
+    # TODO recording tips for funscript/syncydink
     broadcaster = sys.argv[1] if len(sys.argv) >= 2 else ''
     pipe = Pipe()
     pipe_comm = pipe.pipe_a
@@ -39,14 +40,14 @@ def main():
 
     comm_thread = threading.Thread(
         target=communicator_runner, args=(pipe_comm, broadcaster))
-    # target=comm_dummy, args=(pipe_comm, broadcaster))
+        # target=comm_dummy, args=(pipe_comm, broadcaster))
     watcher_thread = threading.Thread(
         target=chat_watcher_runner, args=(pipe_watcher, broadcaster))
-    # target=comm_test, args=(pipe_watcher, broadcaster))
+        # target=comm_test, args=(pipe_watcher, broadcaster))
     comm_thread.start()
     watcher_thread.start()
     print('main: started threads')
-    print('main: [q]uit\t[a]/[z] delay\t[c]hange user\t[r]eload')
+    print('main: [q]uit\t[a]/[z] delay\t[c]hange broadcaster\t[r]eload')
     try:
         while True:
             inp = readkey()
@@ -70,11 +71,6 @@ def main():
         print(ex)
         pipe_comm.put(Exception('main thread error'))
         pipe_watcher.put(Exception('main thread error'))
-
-
-def get_config(key):
-    config = json.load(open('config.json'))
-    return config[key]
 
 
 def communicator_runner(pipe, broadcaster):
@@ -101,7 +97,7 @@ async def communicator(tips_queue, broadcaster):
             while time.time() < start + timeout:
                 await dev.send_vibrate_cmd(pattern[idx % len(pattern)])
                 idx += 1
-                time.sleep(0.1)
+                await asyncio.sleep(0.1)
         else:
             raise ValueError('Got type ' + str(type(val)))
 
@@ -133,6 +129,21 @@ async def communicator(tips_queue, broadcaster):
         await new_dev.send_vibrate_cmd(0)
         dev = new_dev
 
+    def init_user(tips_queue, broadcaster):
+        users = json.load(open('levels.json', 'r'))
+        user = None
+        if broadcaster in users:
+            user = users[broadcaster]
+        else:
+            print('comm: broadcaster not found in levels.json')
+            user = users['default']
+        rand = [l for l in user if 'type' in l and l['type'] == 'e' and 'level' in l and l['level'] == 'r']
+        if len(rand) > 0:
+            tips_queue.put(('random_levels', rand[0]))
+        else:
+            tips_queue.put(('random_levels', None))
+        return user
+
     levelmap = {'0': 0.0,
                 'L': 0.25,
                 'M': 0.5,
@@ -142,12 +153,7 @@ async def communicator(tips_queue, broadcaster):
 
     client = None
     try:
-        users = json.load(open('levels.json', 'r'))
-        user = None
-        if not broadcaster in users:
-            print('comm: broadcaster not found in levels.json')
-            user = users['default']
-        user = user or users[broadcaster]
+        user = init_user(tips_queue, broadcaster)
         dev = None
         client = await init_buttplug()
 
@@ -167,12 +173,8 @@ async def communicator(tips_queue, broadcaster):
                         elif tip[0] == 'broadcaster':
                             broadcaster = tip[1]
                             tips_queue.clear()
-                            if not broadcaster in users:
-                                print('comm: broadcaster not found in levels.json')
-                                user = users['default']
-                            else:
-                                user = users[broadcaster]
-                            print('comm: new broadcaster: ' + broadcaster)
+                            user = init_user(tips_queue, broadcaster)
+                            print('comm: new broadcaster ' + broadcaster)
                         continue
                 except Empty:
                     continue
@@ -185,7 +187,10 @@ async def communicator(tips_queue, broadcaster):
                     if level['level'] == 'x':
                         raise Exception('Exception requested in levels.json')
                     elif level['level'] == 'r':
-                        tip.val = random.choice(level['selection'])
+                        if tip.level != None:
+                            tip.val = level['selection'][tip.level - 1]
+                        else:
+                            tip.val = random.choice(level['selection'])
                         continue
                     elif level['level'] == 'c':
                         tips_queue.clear()
@@ -273,24 +278,55 @@ async def chat_watcher(tips_queue, broadcaster):
             await websocket.send(obj3)
             print('watcher connected to chat room')
             ws_connect_time = time.time()
-            while True:
-                resp = await websocket.recv()
-                if re.search('amount', resp) and time.time() - ws_connect_time > 1: # ignore initial burst of old tips
-                    msg = json.loads(json.loads(json.loads(resp[1:])[0])['args'][0])
-                    # a["{\"args\":[\"{\\\"in_fanclub\\\": false, \\\"to_username\\\": \\\"{broadcaster}\\\", \\\"has_tokens\\\": true, \\\"message\\\": \\\"\\\", \\\"tipped_recently\\\": true, \\\"is_anonymous_tip\\\": false, \\\"dont_send_to\\\": \\\"\\\", \\\"from_username\\\": \\\"{username}\\\", \\\"send_to\\\": \\\"\\\", \\\"tipped_alot_recently\\\": true, \\\"amount\\\": 1, \\\"tipped_tons_recently\\\": true, \\\"is_mod\\\": false, \\\"type\\\": \\\"tip_alert\\\", \\\"history\\\": true}\",\"true\"],\"callback\":null,\"method\":\"onNotify\"}"]
-                    if msg['type'] == 'tip_alert':
-                        amt = msg['amount']
-                        # print(f'<<j {msg}')
-                        try:
-                            tip = Tip(int(amt), time.time())
-                            tips_queue.put(tip)
-                            print('watcher sent ' + str(tip.val) +
-                                  ' from ' + msg['from_username'] +
-                                  ' tip queue len ' + str(tips_queue.len_write()))
-                        except ValueError:
-                            print(f'ValueError on amt:{amt}\ttype:{type(amt)}\tmsg:{msg}')
 
-                time.sleep(0.1)
+            random_levels = None
+            prev_resps = SimpleQueue() # allow follow-up message clarifying random levels to be sent with the tip
+            while True:
+                resp = None
+
+                try:
+                    try:
+                        resp = prev_resps.get_nowait()
+                    except Empty:
+                        resp = await asyncio.wait_for(websocket.recv(), 1)
+                except asyncio.TimeoutError:
+                    pass
+
+                # save all websockets messages for debugging
+                # with open('ws.log', 'a') as f:
+                        # f.write(datetime.now().isoformat() + ' ' + resp + '\n')
+
+                if resp != None and re.search(r'tip_alert', resp, re.IGNORECASE) and time.time() - ws_connect_time > 1: # ignore initial burst of old tips
+                    # tip notification: a["{\"args\":[\"{\\\"in_fanclub\\\": false, \\\"to_username\\\": \\\"{broadcaster}\\\", \\\"has_tokens\\\": true, \\\"message\\\": \\\"\\\", \\\"tipped_recently\\\": true, \\\"is_anonymous_tip\\\": false, \\\"dont_send_to\\\": \\\"\\\", \\\"from_username\\\": \\\"{username}\\\", \\\"send_to\\\": \\\"\\\", \\\"tipped_alot_recently\\\": true, \\\"amount\\\": 1, \\\"tipped_tons_recently\\\": true, \\\"is_mod\\\": false, \\\"type\\\": \\\"tip_alert\\\", \\\"history\\\": true}\",\"true\"],\"callback\":null,\"method\":\"onNotify\"}"]
+                    # random level chosen a["{\"args\":[\"{broadcaster}\",\"{\\\"c\\\": \\\"rgb(120,0,175)\\\", \\\"X-Successful\\\": true, \\\"in_fanclub\\\": false, \\\"f\\\": \\\"Arial, Helvetica\\\", \\\"i\\\": \\\"HWBBR7LPLE7F7V\\\", \\\"gender\\\": \\\"f\\\", \\\"has_tokens\\\": true, \\\"m\\\": \\\"--------\\\\\\\"{username} has RANDOMLY activated level DOMI in 3 by tipping 44 tokens\\\", \\\"tipped_alot_recently\\\": false, \\\"user\\\": \\\"{broadcaster}\\\", \\\"is_mod\\\": false, \\\"tipped_tons_recently\\\": false, \\\"tipped_recently\\\": false}\"],\"callback\":null,\"method\":\"onRoomMsg\"}"]
+                    msg = json.loads(json.loads(json.loads(resp[1:])[0])['args'][0])
+                    if msg['type'] == 'tip_alert':
+                        # print(f'<<j {msg}')
+                        amt = msg['amount']
+                        tip = Tip(int(amt), time.time())
+                        # one of the next few messages might have the randomly chosen level if this tip was for random level
+                        if random_levels != None and tip.val == random_levels['value']:
+                            # limit to 5 messages or 1 second
+                            while prev_resps.qsize() < 5 and time.time() < tip.timestamp + 1:
+                                try:
+                                    resp = await asyncio.wait_for(websocket.recv(), 1)
+                                    matches = re.search(r'level[^\d]+(\d+)', resp)
+                                    if matches:
+                                        random_tip_level = int(matches.group(1))
+                                        tip.val = random_levels['selection'][random_tip_level - 1]
+                                        print(f'watcher random tip level found:{random_tip_level} tip.val:{tip.val}')
+                                    else:
+                                        prev_resps.put(resp)
+                                except asyncio.TimeoutError:
+                                    pass
+
+                        # send the tip
+                        tips_queue.put(tip)
+                        print('watcher sent ' + str(tip.val) +
+                                ' from ' + msg['from_username'] +
+                                ' tip queue len ' + str(tips_queue.len_write()))
+
+                await asyncio.sleep(0.1)
                 try:
                     ex = tips_queue.get_nowait()
                     if type(ex) == Exception:
@@ -301,7 +337,11 @@ async def chat_watcher(tips_queue, broadcaster):
                             print('watcher new broadcaster: ' + broadcaster)
                             break
                         elif ex[0] == 'reload':
-                            break
+                            break # TODO
+                        elif ex[0] == 'random_levels':
+                            random_levels = ex[1]
+                            if random_levels != None:
+                                random_levels['selection'] = sorted(random_levels['selection'])
                 except Empty:
                     pass
     except Exception as ex:
@@ -331,9 +371,12 @@ class Tip(object):
     val = 0
     timestamp = 0
 
-    def __init__(self, val, timestamp):
+    def __init__(self, val, timestamp, level=None):
         self.val = val
         self.timestamp = timestamp
+
+    def __str__(self):
+        return f'Tip val:{self.val} timestamp:{self.timestamp}'
 
 
 if __name__ == '__main__':

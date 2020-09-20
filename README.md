@@ -6,13 +6,14 @@ I can only verify with Lovense toys, but it probably works for any vibrator Butt
 
 ## Pull Requests are welcome!
 
-To do:
+To do (not really in order):
 
+  - [ ] Recording tips to file for later parsing to Syncydink-compatible formats
+  - [ ] Clean up the code (break into files/classes/functions)
+  - [ ] Comment the code
   - [ ] Fix refresh function
   - [ ] Add manual hot-reload for `levels.json`
   - [ ] Write a real schema for `levels.json`
-  - [ ] Comment the code
-  - [ ] Clean up the code (break into files/classes/functions)
   - [ ] Get real logging
 
 ## Setup and dependencies
@@ -46,7 +47,7 @@ Level object:
     - Other values:
       - "x" for raise exception (useful for WIP users)
       - "c" for clear queue
-      - "r" for random, requires "selection" array of integers for a "value" to choose
+      - "r" for random, requires "selection" array of integers for a "value" to choose. Must be specified before the levels in "selection".
 
 Example:
 
