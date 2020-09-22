@@ -32,7 +32,6 @@ from readchar import key as KEY
 from readchar import readkey
 
 def main():
-    # TODO recording tips for funscript/syncydink
     broadcaster = sys.argv[1] if len(sys.argv) >= 2 else ''
     pipe = Pipe()
     pipe_comm = pipe.pipe_a
@@ -47,7 +46,7 @@ def main():
     comm_thread.start()
     watcher_thread.start()
     print('main: started threads')
-    print('main: [q]uit\t[a]/[z] delay\t[c]hange broadcaster\t[r]eload')
+    print('main: [q]uit\t[a]/[z] delay\t[c]hange broadcaster\t[l]evels reload')
     try:
         while True:
             inp = readkey()
@@ -61,9 +60,8 @@ def main():
                 new_broadcaster = input('Enter new broadcaster: ')
                 pipe_comm.put(('broadcaster', new_broadcaster))
                 pipe_watcher.put(('broadcaster', new_broadcaster))
-            elif inp == 'r':
-                pipe_comm.put(('reload'))
-            # TODO command to reload json
+            elif inp == 'l':
+                pipe_comm.put(('levels_reload'))
         watcher_thread.join()
         comm_thread.join()
     except Exception as ex:
@@ -175,6 +173,8 @@ async def communicator(tips_queue, broadcaster):
                             tips_queue.clear()
                             user = init_user(tips_queue, broadcaster)
                             print('comm: new broadcaster ' + broadcaster)
+                        elif tip[0] == 'levels_reload':
+                            user = init_user(tips_queue, broadcaster)
                         continue
                 except Empty:
                     continue
@@ -336,8 +336,6 @@ async def chat_watcher(tips_queue, broadcaster):
                             broadcaster = ex[1]
                             print('watcher new broadcaster: ' + broadcaster)
                             break
-                        elif ex[0] == 'reload':
-                            break # TODO
                         elif ex[0] == 'random_levels':
                             random_levels = ex[1]
                             if random_levels != None:

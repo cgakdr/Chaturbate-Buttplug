@@ -11,8 +11,7 @@ To do (not really in order):
   - [ ] Recording tips to file for later parsing to Syncydink-compatible formats
   - [ ] Clean up the code (break into files/classes/functions)
   - [ ] Comment the code
-  - [ ] Fix refresh function
-  - [ ] Add manual hot-reload for `levels.json`
+  - [ ] Refactor to `asyncio` everything instead of threads
   - [ ] Write a real schema for `levels.json`
   - [ ] Get real logging
 
