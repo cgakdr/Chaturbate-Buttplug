@@ -2,6 +2,7 @@
 
 import asyncio
 import functools
+import logging
 import json
 import os
 import random
@@ -32,6 +33,8 @@ from readchar import key as KEY
 from readchar import readkey
 
 def main():
+    log = get_logger('main')
+
     broadcaster = sys.argv[1] if len(sys.argv) >= 2 else ''
     pipe = Pipe()
     pipe_comm = pipe.pipe_a
@@ -45,8 +48,8 @@ def main():
         # target=comm_test, args=(pipe_watcher, broadcaster))
     comm_thread.start()
     watcher_thread.start()
-    print('main: started threads')
-    print('main: [q]uit\t[a]/[z] delay\t[c]hange broadcaster\t[l]evels reload')
+    log.info('started threads')
+    print('controls: [q]uit\t[a]/[z] delay\t[c]hange broadcaster\t[l]evels reload')
     try:
         while True:
             inp = readkey()
@@ -65,26 +68,30 @@ def main():
         watcher_thread.join()
         comm_thread.join()
     except Exception as ex:
-        print('main thread error')
-        print(ex)
+        log.error('main thread error', ex)
         pipe_comm.put(Exception('main thread error'))
         pipe_watcher.put(Exception('main thread error'))
+    finally:
+        logging.shutdown()
 
 
 def communicator_runner(pipe, broadcaster):
+    log = get_logger('comm')
     asyncio.run(communicator(pipe, broadcaster))
-    print('communicator_runner finished')
+    log.debug('communicator_runner finished')
 
 
 async def communicator(tips_queue, broadcaster):
+    log = get_logger('comm')
+
     async def do_comm(timeout, val):
         if isinstance(val, Number):
-            print('do_comm with ' + str(timeout) + 's@' +
+            log.debug('do_comm with ' + str(timeout) + 's@' +
                   str(val))
             await dev.send_vibrate_cmd(val)
             await asyncio.sleep(timeout)
         elif type(val) == type('str'):
-            print('do_comm with ' + str(timeout) + 's@' + val)
+            log.debug('do_comm with ' + str(timeout) + 's@' + val)
             patterns = {'wave': (0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8, 0.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5),
                         'pulse': (1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0),
                         'earthquake': (0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0, 1.0, 1.0, 1.0, 1.0, 0.7, 0.7, 0.7, 0.7, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 0.7, 0.7, 0.7, 0.7, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0),
@@ -101,22 +108,20 @@ async def communicator(tips_queue, broadcaster):
 
     async def init_buttplug():
         nonlocal dev
-        # print('comm 1')
         client = ButtplugClient('Waves Client')
         connector = ButtplugClientWebsocketConnector('ws://127.0.0.1:12345')
         client.device_added_handler += on_device_added
         await client.connect(connector)
         await client.request_log('Off')
-        # print('comm 2')
         await client.start_scanning()
         while dev == None:
             await asyncio.sleep(0.1)
         await client.stop_scanning()
-        print('device ready')
+        log.debug('device ready')
         return client
 
     def on_device_added(emitter, new_dev: ButtplugClientDevice):
-        print(f'comm: device added {new_dev} {new_dev.name}')
+        log.debug(f'device added {new_dev} {new_dev.name}')
         asyncio.create_task(on_device_added_task(new_dev))
 
     async def on_device_added_task(new_dev):
@@ -133,7 +138,7 @@ async def communicator(tips_queue, broadcaster):
         if broadcaster in users:
             user = users[broadcaster]
         else:
-            print('comm: broadcaster not found in levels.json')
+            log.info('broadcaster not found in levels.json, using default')
             user = users['default']
         rand = [l for l in user if 'type' in l and l['type'] == 'e' and 'level' in l and l['level'] == 'r']
         if len(rand) > 0:
@@ -161,18 +166,18 @@ async def communicator(tips_queue, broadcaster):
                 try:
                     tip = tips_queue.get(timeout=0.1)
                     if type(tip) == Tip:
-                        print('comm: recv tip ' + str(tip.val))
+                        log.debug('recv tip ' + str(tip.val))
                         break
                     else:  # TODO: handle Exception type
-                        print('comm: recv command ' + str(tip[0]))
+                        log.debug('recv command ' + str(tip[0]))
                         if tip[0] == 'delay':
                             delay += tip[1]
-                            print('comm: new delay: ' + str(delay))
+                            log.info('new delay: ' + str(delay))
                         elif tip[0] == 'broadcaster':
                             broadcaster = tip[1]
                             tips_queue.clear()
                             user = init_user(tips_queue, broadcaster)
-                            print('comm: new broadcaster ' + broadcaster)
+                            log.info('new broadcaster ' + broadcaster)
                         elif tip[0] == 'levels_reload':
                             user = init_user(tips_queue, broadcaster)
                         continue
@@ -205,10 +210,10 @@ async def communicator(tips_queue, broadcaster):
             await dev.send_vibrate_cmd(OFF)
             print('sent off')
     except ValueError as ex:  # non-int in queue
-        print('valueerror in comm')
+        print('com valueerror')
         print(traceback.format_exc())
     except Exception as ex:
-        print('comm thread error')
+        print('comm error')
         print(traceback.format_exc())
     finally:
         try:
@@ -249,11 +254,15 @@ def comm_test(tips_queue, broadcaster):
 
 
 def chat_watcher_runner(tips_queue, broadcaster):
+    log = get_logger('chat_watcher')
+
     asyncio.run(chat_watcher(tips_queue, broadcaster))
-    print('chat_watcher_runner finished')
+    log.debug('chat_watcher_runner finished')
 
 
 async def chat_watcher(tips_queue, broadcaster):
+    log = logging.getLogger('chat_watcher')
+
     try:
         api_info = None
         with urllib.request.urlopen(f'https://chaturbate.com/api/chatvideocontext/{broadcaster}/') as url:
@@ -276,7 +285,7 @@ async def chat_watcher(tips_queue, broadcaster):
             obj3 = json_encoder.encode([obj2])
             # print(f'>> {obj3}')
             await websocket.send(obj3)
-            print('watcher connected to chat room')
+            log.info('connected to chat room')
             ws_connect_time = time.time()
 
             random_levels = None
@@ -314,7 +323,7 @@ async def chat_watcher(tips_queue, broadcaster):
                                     if matches:
                                         random_tip_level = int(matches.group(1))
                                         tip.val = random_levels['selection'][random_tip_level - 1]
-                                        print(f'watcher random tip level found:{random_tip_level} tip.val:{tip.val}')
+                                        log.debug(f'random tip level found:{random_tip_level} tip.val:{tip.val}')
                                     else:
                                         prev_resps.put(resp)
                                 except asyncio.TimeoutError:
@@ -322,7 +331,7 @@ async def chat_watcher(tips_queue, broadcaster):
 
                         # send the tip
                         tips_queue.put(tip)
-                        print('watcher sent ' + str(tip.val) +
+                        log.debug('sent ' + str(tip.val) +
                                 ' from ' + msg['from_username'] +
                                 ' tip queue len ' + str(tips_queue.len_write()))
 
@@ -334,7 +343,7 @@ async def chat_watcher(tips_queue, broadcaster):
                     else:
                         if ex[0] == 'broadcaster':
                             broadcaster = ex[1]
-                            print('watcher new broadcaster: ' + broadcaster)
+                            log.info('new broadcaster: ' + broadcaster)
                             break
                         elif ex[0] == 'random_levels':
                             random_levels = ex[1]
@@ -343,19 +352,21 @@ async def chat_watcher(tips_queue, broadcaster):
                 except Empty:
                     pass
     except Exception as ex:
-        print('watcher thread error')
+        print('watcher error')
         print(traceback.format_exc())
     finally:
-        tips_queue.put(Exception('watcher thread error'))
+        tips_queue.put(Exception('watcher error'))
         return
 
 
 def comm_dummy(pipe, broadcaster):
+    log = get_logger('comm_dummy')
+
     try:
         while True:
             try:
                 el = pipe.get()
-                print('comm_dummy recv' + str(el))
+                log.info('recv' + str(el))
                 if type(el) == Exception:
                     raise el
             except Empty:
@@ -364,6 +375,16 @@ def comm_dummy(pipe, broadcaster):
         print('comm_dummy error')
         print(traceback.format_exc())
 
+
+def get_logger(tag, level=logging.DEBUG):
+    logger = logging.getLogger(tag)
+    logger.setLevel(level)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s]  %(message)s')
+    handler.setFormatter(formatter)
+    logger.handlers.append(handler)
+    return logger
 
 class Tip(object):
     val = 0

@@ -10,6 +10,7 @@ To do (not really in order):
 
   - [ ] Recording tips to file for later parsing to Syncydink-compatible formats
   - [ ] Clean up the code (break into files/classes/functions)
+  - [ ] Command-line options for log level and recording
   - [ ] Comment the code
   - [ ] Refactor to `asyncio` everything instead of threads
   - [ ] Write a real schema for `levels.json`
