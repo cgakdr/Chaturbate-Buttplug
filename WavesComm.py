@@ -16,6 +16,7 @@ import urllib.request
 from datetime import datetime
 from numbers import Number
 from queue import Empty, SimpleQueue
+import warnings
 
 import requests
 import websockets
@@ -76,7 +77,7 @@ def main():
 
 
 def communicator_runner(pipe, broadcaster):
-    log = get_logger('comm')
+    log = get_logger('communicator_runner')
     asyncio.run(communicator(pipe, broadcaster))
     log.debug('communicator_runner finished')
 
@@ -112,7 +113,9 @@ async def communicator(tips_queue, broadcaster):
         connector = ButtplugClientWebsocketConnector('ws://127.0.0.1:12345')
         client.device_added_handler += on_device_added
         await client.connect(connector)
-        client.request_log('Off')
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=RuntimeWarning)
+            client.request_log('Off')
         await client.start_scanning()
         while dev == None:
             await asyncio.sleep(0.5)
@@ -195,6 +198,8 @@ async def communicator(tips_queue, broadcaster):
                     elif level['level'] == 'r':
                         if tip.val != None:
                             tip.val = level['selection'][tip.val - 1]
+                            log.debug(f'qqqqqq comm got passed rand tip val of {tip.val}')
+                            pass
                         else:
                             tip.val = random.choice(level['selection'])
                         continue
@@ -209,13 +214,13 @@ async def communicator(tips_queue, broadcaster):
                     break
 
             await dev.send_vibrate_cmd(OFF)
-            print('sent off')
+            log.debug('sent off')
     except ValueError as ex:  # non-int in queue
-        print('com valueerror')
-        print(traceback.format_exc())
+        log.error('com valueerror')
+        log.error(traceback.format_exc())
     except Exception as ex:
-        print('comm error')
-        print(traceback.format_exc())
+        log.error('comm error')
+        log.error(traceback.format_exc())
     finally:
         try:
             await do_comm(0.1, OFF)
@@ -304,7 +309,7 @@ async def chat_watcher(tips_queue, broadcaster):
 
                 # save all websockets messages for debugging
                 # with open('ws.log', 'a') as f:
-                        # f.write(datetime.now().isoformat() + ' ' + resp + '\n')
+                        # f.write(f'{datetime.now().isoformat()} {resp}\n')
 
                 if resp != None and re.search(r'tip_alert', resp, re.IGNORECASE) and time.time() - ws_connect_time > 1: # ignore initial burst of old tips
                     # tip notification: a["{\"args\":[\"{\\\"in_fanclub\\\": false, \\\"to_username\\\": \\\"{broadcaster}\\\", \\\"has_tokens\\\": true, \\\"message\\\": \\\"\\\", \\\"tipped_recently\\\": true, \\\"is_anonymous_tip\\\": false, \\\"dont_send_to\\\": \\\"\\\", \\\"from_username\\\": \\\"{username}\\\", \\\"send_to\\\": \\\"\\\", \\\"tipped_alot_recently\\\": true, \\\"amount\\\": 1, \\\"tipped_tons_recently\\\": true, \\\"is_mod\\\": false, \\\"type\\\": \\\"tip_alert\\\", \\\"history\\\": true}\",\"true\"],\"callback\":null,\"method\":\"onNotify\"}"]
@@ -317,10 +322,11 @@ async def chat_watcher(tips_queue, broadcaster):
                         # one of the next few messages might have the randomly chosen level if this tip was for random level
                         if random_levels != None and tip.val == random_levels['value']:
                             # limit to 5 messages or 1 second
+                            log.debug('searching for random level')
                             while prev_resps.qsize() < 10 and time.time() < tip.timestamp + 1:
                                 try:
                                     resp = await asyncio.wait_for(websocket.recv(), 1)
-                                    matches = re.search(r'level[^\d]+(\d+)', resp)
+                                    matches = re.search(r'[Ll]evel[^\d]+(\d+)', resp)
                                     if matches:
                                         random_tip_level = int(matches.group(1))
                                         tip.val = random_levels['selection'][random_tip_level - 1]
