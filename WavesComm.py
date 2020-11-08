@@ -112,23 +112,23 @@ async def communicator(tips_queue, broadcaster):
         connector = ButtplugClientWebsocketConnector('ws://127.0.0.1:12345')
         client.device_added_handler += on_device_added
         await client.connect(connector)
-        await client.request_log('Off')
+        client.request_log('Off')
         await client.start_scanning()
         while dev == None:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
         await client.stop_scanning()
         log.debug('device ready')
         return client
 
     def on_device_added(emitter, new_dev: ButtplugClientDevice):
-        log.debug(f'device added {new_dev} {new_dev.name}')
+        log.debug(f'device added {new_dev.name}')
         asyncio.create_task(on_device_added_task(new_dev))
 
     async def on_device_added_task(new_dev):
         nonlocal dev
         assert 'VibrateCmd' in new_dev.allowed_messages.keys()
         await new_dev.send_vibrate_cmd(0.25)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.25)
         await new_dev.send_vibrate_cmd(0)
         dev = new_dev
 
@@ -164,25 +164,26 @@ async def communicator(tips_queue, broadcaster):
         while True:  # each loop iteration handles 1 message
             while True:  # wait for queue message but also allow interrupts
                 try:
-                    tip = tips_queue.get(timeout=0.1)
-                    if type(tip) == Tip:
-                        log.debug('recv tip ' + str(tip.val))
+                    msg = tips_queue.get(timeout=0.1)
+                    if type(msg) == Tip:
+                        log.debug('recv tip ' + str(msg.val))
                         break
                     else:  # TODO: handle Exception type
-                        log.debug('recv command ' + str(tip[0]))
-                        if tip[0] == 'delay':
-                            delay += tip[1]
+                        log.debug('recv command ' + str(msg[0]))
+                        if msg[0] == 'delay':
+                            delay += msg[1]
                             log.info('new delay: ' + str(delay))
-                        elif tip[0] == 'broadcaster':
-                            broadcaster = tip[1]
+                        elif msg[0] == 'broadcaster':
+                            broadcaster = msg[1]
                             tips_queue.clear()
                             user = init_user(tips_queue, broadcaster)
                             log.info('new broadcaster ' + broadcaster)
-                        elif tip[0] == 'levels_reload':
+                        elif msg[0] == 'levels_reload':
                             user = init_user(tips_queue, broadcaster)
                         continue
                 except Empty:
                     continue
+            tip: Tip = msg
             while time.time() < tip.timestamp + delay:
                 await asyncio.sleep(0.25)
             # handle tips
@@ -192,8 +193,8 @@ async def communicator(tips_queue, broadcaster):
                     if level['level'] == 'x':
                         raise Exception('Exception requested in levels.json')
                     elif level['level'] == 'r':
-                        if tip.level != None:
-                            tip.val = level['selection'][tip.level - 1]
+                        if tip.val != None:
+                            tip.val = level['selection'][tip.val - 1]
                         else:
                             tip.val = random.choice(level['selection'])
                         continue
@@ -312,11 +313,11 @@ async def chat_watcher(tips_queue, broadcaster):
                     if msg['type'] == 'tip_alert':
                         # print(f'<<j {msg}')
                         amt = msg['amount']
-                        tip = Tip(int(amt), time.time())
+                        tip: Tip = Tip(int(amt), time.time())
                         # one of the next few messages might have the randomly chosen level if this tip was for random level
                         if random_levels != None and tip.val == random_levels['value']:
                             # limit to 5 messages or 1 second
-                            while prev_resps.qsize() < 5 and time.time() < tip.timestamp + 1:
+                            while prev_resps.qsize() < 10 and time.time() < tip.timestamp + 1:
                                 try:
                                     resp = await asyncio.wait_for(websocket.recv(), 1)
                                     matches = re.search(r'level[^\d]+(\d+)', resp)
@@ -325,7 +326,8 @@ async def chat_watcher(tips_queue, broadcaster):
                                         tip.val = random_levels['selection'][random_tip_level - 1]
                                         log.debug(f'random tip level found:{random_tip_level} tip.val:{tip.val}')
                                     else:
-                                        prev_resps.put(resp)
+                                        if 'room subject changed to' not in resp and '"Notice: ' not in resp: # ignore easy 'spam'
+                                            prev_resps.put(resp)
                                 except asyncio.TimeoutError:
                                     pass
 
