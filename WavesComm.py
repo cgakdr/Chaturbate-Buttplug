@@ -196,12 +196,7 @@ async def communicator(tips_queue, broadcaster):
                     if level['level'] == 'x':
                         raise Exception('Exception requested in levels.json')
                     elif level['level'] == 'r':
-                        if tip.val != None:
-                            tip.val = level['selection'][tip.val - 1]
-                            log.debug(f'qqqqqq comm got passed rand tip val of {tip.val}')
-                            pass
-                        else:
-                            tip.val = random.choice(level['selection'])
+                        tip.val = random.choice(level['selection'])
                         continue
                     elif level['level'] == 'c':
                         tips_queue.clear()
