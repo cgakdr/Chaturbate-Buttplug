@@ -12,9 +12,11 @@ To do (not really in order):
   - [ ] Clean up the code (break into files/classes/functions)
   - [ ] Command-line options for log level and recording
   - [ ] Comment the code
-  - [ ] Refactor to `asyncio` everything instead of threads
+  - [ ] Refactor to `asyncio` everything instead of threads (performance?)
   - [ ] Write a real schema for `levels.json`
-  - [ ] Get real logging
+  - [x] Get real logging
+  - [ ] Support multiple vibrator devices
+  - [ ] Support non-vibrator devices
 
 ## Setup and dependencies
 
