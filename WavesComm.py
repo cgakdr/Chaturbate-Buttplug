@@ -23,9 +23,6 @@ import websockets
 
 from pipe import Pipe
 
-# local versions of libraries
-sys.path.insert(0, 'buttplug')
-sys.path.insert(0, 'python_readchar\\readchar')
 from buttplug.client import (ButtplugClient, ButtplugClientConnectorError,
                              ButtplugClientDevice,
                              ButtplugClientWebsocketConnector)
@@ -188,7 +185,7 @@ async def communicator(tips_queue, broadcaster):
                     continue
             tip: Tip = msg
             while time.time() < tip.timestamp + delay:
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.1)
             # handle tips
             for level in user:
                 if (level['type'] == 'e' and tip.val == level['value']) or (

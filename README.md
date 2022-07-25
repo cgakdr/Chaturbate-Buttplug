@@ -20,9 +20,9 @@ To do (not really in order):
 
 ## Setup and dependencies
 
-Packages:
-  - `python-readchar` (and see [this issue](https://github.com/magmax/python-readchar/issues/42) for a performance fix)
-  - `buttplug`
+1. Activate the virtualenv: `$ source venv/Scripts/activate`
+2. Install dependencies: `pip install -r requirements.txt`
+3. Run the script: `python WavesComm.py username`
 
 ## Specifying levels in levels.json
 
